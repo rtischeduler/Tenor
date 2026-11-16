@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 const start = process.argv[2];
 const out_dir = process.argv[3];
 const extra_hosts = (process.argv[4] || "").split(",").map((s) => s.trim()).filter(Boolean);
-const MAX_FETCHES = 1500;
+const MAX_FETCHES = 300;
 const MAX_DEPTH = 5;
 const MAX_SAVE = 8 * 1024 * 1024;
 const WORKERS = 8;
@@ -13,6 +13,16 @@ const BASE_HOSTS = ["tenor.com", "media.tenor.com", "c.tenor.com", "tenor.google
 const TEXTUAL = /(javascript|json|html|css|xml|text\/)/i;
 const BINARY_EXT = /\.(wasm|data|bin|png|jpe?g|gif|webp|svg|woff2?|ttf|otf|ico|mp3|mp4|ogg|zip|br|gz)(\?|#|$)/i;
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+
+const SKIP_PATHS = /^\/(?:[a-z]{2}(?:-[A-Za-z]{2,4})?\/|view\/|search\/|tag\/|gif-maker|stickers|categories|reactions|trending|users?\/|[a-z0-9-]+-gifs?(?:\/|$)|[a-z0-9-]+-stickers?(?:\/|$)|.*-gif-\d+)/i;
+const MEDIA_HOST = /^(?:c|media\d*)\.tenor\.com$/;
+const CODE_EXT = /\.(?:js|mjs|json|css|map|txt)(?:\?|$)/i;
+function ignored(parsed) {
+  if (MEDIA_HOST.test(parsed.hostname)) return !CODE_EXT.test(parsed.pathname);
+  if (parsed.hostname === "tenor.googleapis.com") return false;
+  if (BINARY_EXT.test(parsed.pathname)) return !/\.(?:wasm)$/i.test(parsed.pathname);
+  return parsed.hostname.endsWith("tenor.com") && parsed.pathname !== "/" && SKIP_PATHS.test(parsed.pathname);
+}
 
 const allowed = [...BASE_HOSTS, ...extra_hosts];
 const hostOk = (host) => allowed.some((h) => host === h || host.endsWith("." + h));
@@ -84,6 +94,10 @@ async function visit(item) {
   }
   if (!/^https?:$/.test(parsed.protocol) || !hostOk(parsed.hostname)) {
     rows.push([depth, "skipped", "", "", url, from]);
+    return;
+  }
+  if (ignored(parsed)) {
+    rows.push([depth, "ignored", "", "", url, from]);
     return;
   }
   if (fetched >= MAX_FETCHES) {
